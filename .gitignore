@@ -1,1 +1,6 @@
 node_modules/
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Added by ggshield
+.cache_ggshield

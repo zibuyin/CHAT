@@ -127,6 +127,121 @@
             background: #dfe8ff;
         }
 
+        .msg .bubble img {
+            display: block;
+            max-width: 220px;
+            max-height: 220px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .msg .bubble.image-bubble {
+            padding: 4px;
+            background: transparent;
+        }
+
+        .msg .bubble.image-bubble {
+            position: relative;
+        }
+
+        .msg .bubble.image-bubble.burn-pending img {
+            filter: blur(18px);
+        }
+
+        .msg .bubble.image-bubble .burn-overlay {
+            position: absolute;
+            inset: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            color: #fff;
+            font-size: 12px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .msg .bubble.burned {
+            background: #eee;
+            color: #999;
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        .msg .bubble.text-burn {
+            position: relative;
+            cursor: pointer;
+            min-width: 120px;
+            min-height: 20px;
+        }
+
+        .msg .bubble.text-burn .burn-text {
+            filter: blur(6px);
+            user-select: none;
+        }
+
+        .msg .bubble.text-burn.revealed .burn-text {
+            filter: none;
+        }
+
+        .msg .bubble.text-burn .burn-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            color: #333;
+            font-size: 11px;
+            text-align: center;
+            background: rgba(240, 241, 245, 0.75);
+            border-radius: 10px;
+        }
+
+        .msg .bubble.text-burn.revealed .burn-overlay {
+            display: none;
+        }
+
+        .msg .bubble.text-burn .burn-timer {
+            display: none;
+            font-size: 10px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .msg .bubble.text-burn.revealed .burn-timer {
+            display: block;
+        }
+
+        #imageModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        #imageModal img {
+            max-width: 90vw;
+            max-height: 80vh;
+            border-radius: 8px;
+        }
+
+        #imageModalTimer {
+            margin-top: 12px;
+            color: #fff;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+
         #inputBar {
             display: flex;
             border-top: 1px solid #eee;
@@ -134,12 +249,31 @@
             gap: 8px;
         }
 
-        #inputBar input {
+        #inputBar input[type="text"] {
             flex: 1;
             padding: 10px 12px;
             border: 1px solid #ddd;
             border-radius: 8px;
             font-size: 14px;
+        }
+
+        #photoBtn {
+            padding: 10px 14px;
+            background: #f0f1f5;
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #burnLabel {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
         }
 
         #inputBar button {
@@ -178,6 +312,38 @@
                 transform: scale(1.12);
             }
         }
+
+        #alertToggleBtn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        #alertToggleBtn.on {
+            background: #ffc107;
+            color: #333;
+            font-weight: 700;
+        }
+
+        body.flash-alert {
+            animation: flash 0.4s ease-in-out 3;
+        }
+
+        @keyframes flash {
+
+            0%,
+            100% {
+                background: #f2f3f5;
+            }
+
+            50% {
+                background: #ff5252;
+            }
+        }
     </style>
 </head>
 
@@ -185,6 +351,7 @@
 
     <div id="loginView">
         <div id="loginError"></div>
+        <input id="nameInput" type="text" placeholder="昵称（可选，留空则随机生成）" maxlength="30" />
         <input id="passwordInput" type="password" placeholder="密码" />
         <button id="loginBtn">登录</button>
     </div>
@@ -192,14 +359,23 @@
     <div id="chatView">
         <div id="chatHeader">
             <span id="whoami"></span>
+            <button id="alertToggleBtn" style="display:none">强提醒：关</button>
             <span id="countdown">5:00</span>
             <button id="logoutBtn">退出</button>
         </div>
         <div id="messages"></div>
         <div id="inputBar">
+            <button id="photoBtn" title="发送照片">📷</button>
+            <input id="photoInput" type="file" accept="image/*" style="display:none" />
+            <label id="burnLabel"><input id="burnCheckbox" type="checkbox" />🔥阅后即焚</label>
             <input id="textInput" type="text" placeholder="输入消息..." maxlength="1000" />
             <button id="sendBtn">发送</button>
         </div>
+    </div>
+
+    <div id="imageModal">
+        <img id="imageModalImg" src="" alt="图片" />
+        <div id="imageModalTimer"></div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
