@@ -97,6 +97,40 @@
             font-size: 12px;
         }
 
+        #onlineUsers {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px 16px;
+            background: #f8f9fb;
+            border-bottom: 1px solid #eee;
+        }
+
+        .online-user {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: #eef1fb;
+            color: #4a6cf7;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .online-user.warning {
+            background: #ffe1e0;
+            color: #e0413c;
+        }
+
+        .online-user .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #2ecc71;
+            flex-shrink: 0;
+        }
+
         #messages {
             flex: 1;
             overflow-y: auto;
@@ -111,6 +145,55 @@
             font-size: 11px;
             color: #999;
             margin-bottom: 2px;
+        }
+
+        .msg .meta .reply-btn {
+            margin-left: 6px;
+            color: #4a6cf7;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .reply-quote {
+            display: block;
+            font-size: 11px;
+            color: #888;
+            background: rgba(0, 0, 0, 0.04);
+            border-left: 3px solid #4a6cf7;
+            padding: 4px 8px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #replyPreview {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 16px;
+            background: #eef1fb;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #444;
+        }
+
+        #replyPreview .reply-snippet {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+        }
+
+        #replyPreview button {
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 14px;
         }
 
         .msg .bubble {
@@ -267,6 +350,50 @@
             font-size: 16px;
         }
 
+        #fileBtn {
+            padding: 10px 14px;
+            background: #f0f1f5;
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .msg .bubble.file-card {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f0f1f5;
+            padding: 10px 12px;
+            text-decoration: none;
+            color: #333;
+        }
+
+        .msg .bubble.file-card .file-icon {
+            font-size: 20px;
+        }
+
+        .msg .bubble.file-card .file-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .msg .bubble.file-card .file-name {
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 180px;
+        }
+
+        .msg .bubble.file-card .file-size {
+            font-size: 11px;
+            color: #999;
+        }
+
         #burnLabel {
             display: flex;
             align-items: center;
@@ -352,6 +479,7 @@
     <div id="loginView">
         <div id="loginError"></div>
         <input id="nameInput" type="text" placeholder="昵称（可选，留空则随机生成）" maxlength="30" />
+        <input id="roomInput" type="text" placeholder="房间号" maxlength="30" />
         <input id="passwordInput" type="password" placeholder="密码" />
         <button id="loginBtn">登录</button>
     </div>
@@ -363,10 +491,18 @@
             <span id="countdown">5:00</span>
             <button id="logoutBtn">退出</button>
         </div>
+        <div id="onlineUsers"></div>
         <div id="messages"></div>
+        <div id="replyPreview">
+            <span class="reply-snippet"></span>
+            <button id="replyCancelBtn" title="取消回复">✕</button>
+        </div>
         <div id="inputBar">
             <button id="photoBtn" title="发送照片">📷</button>
             <input id="photoInput" type="file" accept="image/*" style="display:none" />
+            <button id="fileBtn" title="发送文件">📎</button>
+            <input id="fileInput" type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.apk,.zip,.txt"
+                style="display:none" />
             <label id="burnLabel"><input id="burnCheckbox" type="checkbox" />🔥阅后即焚</label>
             <input id="textInput" type="text" placeholder="输入消息..." maxlength="1000" />
             <button id="sendBtn">发送</button>

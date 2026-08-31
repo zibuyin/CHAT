@@ -2,6 +2,7 @@ const loginView = document.getElementById("loginView");
 const chatView = document.getElementById("chatView");
 const loginError = document.getElementById("loginError");
 const nameInput = document.getElementById("nameInput");
+const roomInput = document.getElementById("roomInput");
 const passwordInput = document.getElementById("passwordInput");
 const loginBtn = document.getElementById("loginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -10,6 +11,8 @@ const textInput = document.getElementById("textInput");
 const sendBtn = document.getElementById("sendBtn");
 const photoBtn = document.getElementById("photoBtn");
 const photoInput = document.getElementById("photoInput");
+const fileBtn = document.getElementById("fileBtn");
+const fileInput = document.getElementById("fileInput");
 const burnCheckbox = document.getElementById("burnCheckbox");
 const whoami = document.getElementById("whoami");
 const countdownEl = document.getElementById("countdown");
@@ -17,9 +20,14 @@ const alertToggleBtn = document.getElementById("alertToggleBtn");
 const imageModal = document.getElementById("imageModal");
 const imageModalImg = document.getElementById("imageModalImg");
 const imageModalTimer = document.getElementById("imageModalTimer");
+const onlineUsersEl = document.getElementById("onlineUsers");
+const replyPreview = document.getElementById("replyPreview");
+const replySnippetEl = replyPreview.querySelector(".reply-snippet");
+const replyCancelBtn = document.getElementById("replyCancelBtn");
 
 let socket = null;
 let myName = null;
+let myRoomId = null;
 let sessionExpiresAt = null;
 let countdownTimer = null;
 let sessionUnlimited = false;
@@ -27,6 +35,10 @@ let strongAlertEnabled = false;
 let audioCtx = null;
 let burnCountdownTimer = null;
 let currentBurnId = null;
+let onlineUsers = [];
+let onlineUsersTimer = null;
+let windowFocused = true;
+let replyingTo = null;
 const BURN_VIEW_SECONDS = 5;
 
 function playBeep() {
@@ -61,19 +73,25 @@ function showLogin(message) {
   }
   clearInterval(countdownTimer);
   countdownTimer = null;
+  clearInterval(onlineUsersTimer);
+  onlineUsersTimer = null;
+  onlineUsers = [];
+  onlineUsersEl.innerHTML = "";
   sessionExpiresAt = null;
   sessionUnlimited = false;
   strongAlertEnabled = false;
   alertToggleBtn.style.display = "none";
   alertToggleBtn.classList.remove("on");
   alertToggleBtn.textContent = "强提醒：关";
+  cancelReply();
 }
 
-function showChat(name, expiresAt, unlimited) {
+function showChat(name, roomId, expiresAt, unlimited) {
   myName = name;
+  myRoomId = roomId;
   sessionExpiresAt = expiresAt;
   sessionUnlimited = !!unlimited;
-  whoami.textContent = `已登录：${name}`;
+  whoami.textContent = `已登录：${name} · 房间：${roomId}`;
   loginView.style.display = "none";
   chatView.style.display = "flex";
   loadHistory();
@@ -86,6 +104,8 @@ function showChat(name, expiresAt, unlimited) {
     alertToggleBtn.style.display = "none";
     startCountdown();
   }
+  clearInterval(onlineUsersTimer);
+  onlineUsersTimer = setInterval(renderOnlineUsers, 1000);
 }
 
 function startCountdown() {
@@ -110,6 +130,56 @@ async function updateCountdown() {
   countdownEl.classList.toggle("warning", totalSeconds <= 60);
 }
 
+function renderOnlineUsers() {
+  onlineUsersEl.innerHTML = onlineUsers.map((u) => {
+    let timeLabel = "不限时";
+    let warning = false;
+    if (!u.unlimited) {
+      const remainingMs = u.expiresAt - Date.now();
+      const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      timeLabel = `${m}:${String(s).padStart(2, "0")}`;
+      warning = totalSeconds <= 60;
+    }
+    // 暂时禁用 focus 状态显示
+    // const focusLabel = u.focused ? "👀 专注" : "💤 离开";
+    return `<span class="online-user${warning ? " warning" : ""}"><span class="dot"></span>${escapeHtml(u.name)} · ${timeLabel}</span>`;
+  }).join("");
+}
+
+// 暂时禁用 focus 状态功能
+// function reportFocusState() {
+//   if (!socket) return;
+//   const focused = windowFocused && document.visibilityState !== "hidden";
+//   socket.emit("user:focus", focused);
+// }
+
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function messageSnippet(msg) {
+  if (msg.type === "image") return "[图片]";
+  if (msg.type === "file") return `[文件] ${msg.fileName || ""}`;
+  return (msg.text || "").slice(0, 80);
+}
+
+function startReply(msg) {
+  replyingTo = { id: msg.id, name: msg.name, snippet: messageSnippet(msg) };
+  replySnippetEl.textContent = `回复 ${replyingTo.name}：${replyingTo.snippet}`;
+  replyPreview.style.display = "flex";
+  textInput.focus();
+}
+
+function cancelReply() {
+  replyingTo = null;
+  replyPreview.style.display = "none";
+}
+
 function renderMessage(msg) {
   const div = document.createElement("div");
   const isSelf = msg.name === myName;
@@ -125,6 +195,17 @@ function renderMessage(msg) {
     bubble = `<div class="bubble image-bubble view-only" data-msg-id="${escapeHtml(msg.id)}" data-msg-type="image">
          <img src="${escapeHtml(msg.url)}" alt="图片" />
        </div>`;
+  } else if (msg.type === "file" && msg.burnAfterReading) {
+    bubble = `<div class="bubble text-burn burn-pending" data-msg-id="${escapeHtml(msg.id)}" data-msg-type="file">
+         <a class="burn-text" href="${escapeHtml(msg.url)}" download="${escapeHtml(msg.fileName)}" target="_blank">📎 ${escapeHtml(msg.fileName)} (${formatFileSize(msg.fileSize)})</a>
+         <div class="burn-overlay">🔥 阅后即焚<br>点击下载</div>
+         <div class="burn-timer"></div>
+       </div>`;
+  } else if (msg.type === "file") {
+    bubble = `<a class="bubble file-card" href="${escapeHtml(msg.url)}" download="${escapeHtml(msg.fileName)}" target="_blank">
+         <span class="file-icon">📎</span>
+         <span class="file-info"><span class="file-name">${escapeHtml(msg.fileName)}</span><span class="file-size">${formatFileSize(msg.fileSize)}</span></span>
+       </a>`;
   } else if (msg.burnAfterReading) {
     bubble = `<div class="bubble text-burn burn-pending" data-msg-id="${escapeHtml(msg.id)}" data-msg-type="text">
          <span class="burn-text">${escapeHtml(msg.text)}</span>
@@ -134,12 +215,17 @@ function renderMessage(msg) {
   } else {
     bubble = `<div class="bubble">${escapeHtml(msg.text)}</div>`;
   }
+  const quote = msg.replyTo
+    ? `<span class="reply-quote">回复 ${escapeHtml(msg.replyTo.name)}：${escapeHtml(msg.replyTo.snippet)}</span>`
+    : "";
   div.innerHTML = `
-    <div class="meta">${escapeHtml(msg.name)} · ${time}</div>
+    <div class="meta">${escapeHtml(msg.name)} · ${time}<span class="reply-btn" data-reply-id="${escapeHtml(msg.id)}">↩ 回复</span></div>
+    ${quote}
     ${bubble}
   `;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  div.dataset.rawMessage = JSON.stringify(msg);
 
   if (!isSelf && strongAlertEnabled) triggerStrongAlert();
 }
@@ -201,9 +287,10 @@ function revealTextBurn(bubble, id) {
 function markMessageBurned(id) {
   const bubble = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (bubble) {
-    const isImage = bubble.dataset.msgType === "image";
+    const type = bubble.dataset.msgType;
+    const labels = { image: "🔥 图片已阅后即焚", file: "🔥 文件已阅后即焚" };
     bubble.className = "bubble burned";
-    bubble.textContent = isImage ? "🔥 图片已阅后即焚" : "🔥 消息已阅后即焚";
+    bubble.textContent = labels[type] || "🔥 消息已阅后即焚";
   }
   if (currentBurnId === id) {
     clearInterval(burnCountdownTimer);
@@ -230,8 +317,13 @@ async function loadHistory() {
 
 function connectSocket() {
   socket = io();
+  // socket.on("connect", reportFocusState); // 暂时禁用 focus 状态功能
   socket.on("chat:message", renderMessage);
   socket.on("chat:burn", ({ id }) => markMessageBurned(id));
+  socket.on("room:users", (users) => {
+    onlineUsers = users;
+    renderOnlineUsers();
+  });
   socket.on("connect_error", () => {
     showLogin("会话已过期，请重新登录");
   });
@@ -242,14 +334,14 @@ async function login() {
   const res = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: passwordInput.value, name: nameInput.value })
+    body: JSON.stringify({ password: passwordInput.value, name: nameInput.value, roomId: roomInput.value })
   });
   const data = await res.json();
   if (!res.ok) {
     loginError.textContent = data.error || "登录失败";
     return;
   }
-  showChat(data.name, data.expiresAt, data.unlimited);
+  showChat(data.name, data.roomId, data.expiresAt, data.unlimited);
 }
 
 async function logout() {
@@ -262,7 +354,7 @@ async function checkSession() {
   const res = await fetch("/api/session");
   const data = await res.json();
   if (data.authenticated && (data.unlimited || data.expiresAt > Date.now())) {
-    showChat(data.name, data.expiresAt, data.unlimited);
+    showChat(data.name, data.roomId, data.expiresAt, data.unlimited);
   } else {
     showLogin();
   }
@@ -271,22 +363,42 @@ async function checkSession() {
 function sendMessage() {
   const text = textInput.value.trim();
   if (!text || !socket) return;
-  socket.emit("chat:message", { text, burn: burnCheckbox.checked });
+  socket.emit("chat:message", { text, burn: burnCheckbox.checked, replyTo: replyingTo });
   textInput.value = "";
+  cancelReply();
 }
 
 async function sendPhoto(file) {
   const formData = new FormData();
   formData.append("image", file);
   formData.append("burn", burnCheckbox.checked ? "1" : "0");
+  if (replyingTo) formData.append("replyTo", JSON.stringify(replyingTo));
   const res = await fetch("/api/upload", { method: "POST", body: formData });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     alert(data.error || "图片上传失败");
   }
+  cancelReply();
 }
 
+async function sendFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("burn", burnCheckbox.checked ? "1" : "0");
+  if (replyingTo) formData.append("replyTo", JSON.stringify(replyingTo));
+  const res = await fetch("/api/upload-file", { method: "POST", body: formData });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || "文件上传失败");
+  }
+  cancelReply();
+}
+
+
 loginBtn.addEventListener("click", login);
+roomInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") login();
+});
 passwordInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") login();
 });
@@ -304,7 +416,20 @@ photoInput.addEventListener("change", () => {
   if (file) sendPhoto(file);
   photoInput.value = "";
 });
+fileBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (file) sendFile(file);
+  fileInput.value = "";
+});
 messagesEl.addEventListener("click", (e) => {
+  const replyBtn = e.target.closest(".reply-btn");
+  if (replyBtn) {
+    const msgDiv = replyBtn.closest(".msg");
+    const raw = msgDiv && msgDiv.dataset.rawMessage;
+    if (raw) startReply(JSON.parse(raw));
+    return;
+  }
   const textBurnBubble = e.target.closest(".text-burn.burn-pending");
   if (textBurnBubble) {
     revealTextBurn(textBurnBubble, textBurnBubble.dataset.msgId);
@@ -315,6 +440,7 @@ messagesEl.addEventListener("click", (e) => {
   const img = imageBubble.querySelector("img");
   openImageModal(imageBubble.dataset.msgId, img.src, imageBubble.classList.contains("burn-pending"));
 });
+replyCancelBtn.addEventListener("click", cancelReply);
 imageModal.addEventListener("click", closeImageModal);
 alertToggleBtn.addEventListener("click", () => {
   if (!sessionUnlimited) return;
@@ -322,5 +448,15 @@ alertToggleBtn.addEventListener("click", () => {
   alertToggleBtn.classList.toggle("on", strongAlertEnabled);
   alertToggleBtn.textContent = strongAlertEnabled ? "强提醒：开" : "强提醒：关";
 });
+// 暂时禁用 focus 状态功能
+// window.addEventListener("focus", () => {
+//   windowFocused = true;
+//   reportFocusState();
+// });
+// window.addEventListener("blur", () => {
+//   windowFocused = false;
+//   reportFocusState();
+// });
+// document.addEventListener("visibilitychange", reportFocusState);
 
 checkSession();
