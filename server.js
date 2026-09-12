@@ -6,7 +6,15 @@ const fs = require("fs");
 const crypto = require("crypto");
 const multer = require("multer");
 const { Server } = require("socket.io");
-const { password, specialPassword, sessionTimeoutMs } = require("./config");
+const { Client, GatewayIntentBits } = require("discord.js");
+const {
+  password,
+  specialPassword,
+  discordBotToken,
+  discordChannelId,
+  discordRoomId,
+  sessionTimeoutMs
+} = require("./config");
 
 const app = express();
 const server = http.createServer(app);
@@ -54,6 +62,8 @@ const uploadFile = multer({
   }
 });
 
+let discordClient = null;
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public"), {
   // 避免浏览器缓存旧版前端文件导致行为不一致（例如缓存了没有 name 字段的旧 app.js）
@@ -84,6 +94,89 @@ function loadMessages() {
 
 function saveMessages(messages) {
   fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
+}
+
+async function sendToDiscord(message) {
+  if (!discordClient || !discordClient.isReady() || message.fromSpecialUser) return;
+
+  const contentParts = [`[${message.room}] ${message.name}`];
+  if (message.type === "text") {
+    contentParts.push(message.text);
+  } else if (message.type === "image") {
+    contentParts.push(`${message.burnAfterReading ? "[阅后即焚图片]" : "[图片]"} ${message.url}`);
+  } else if (message.type === "file") {
+    contentParts.push(`${message.burnAfterReading ? "[阅后即焚文件]" : "[文件]"} ${message.fileName}: ${message.url}`);
+  }
+  if (message.replyTo) {
+    contentParts.push(`回复 ${message.replyTo.name}: ${message.replyTo.snippet}`);
+  }
+
+  try {
+    const payload = { content: contentParts.join("\n").slice(0, 2000), allowedMentions: { parse: [] } };
+    if (message.type === "image" || message.type === "file") {
+      payload.files = [{
+        attachment: path.join(UPLOADS_DIR, path.basename(message.url)),
+        name: message.fileName || path.basename(message.url)
+      }];
+    }
+    const channel = await discordClient.channels.fetch(discordChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    await channel.send(payload);
+  } catch (error) {
+    console.error("Discord bot send error:", error.message);
+  }
+}
+
+function addAndBroadcastMessage(message) {
+  addMessage(message);
+  io.to(message.room).emit("chat:message", message);
+}
+
+function addDiscordMessage(discordMessage, type, attachment) {
+  const name = (discordMessage.member?.displayName || discordMessage.author.globalName || discordMessage.author.username).slice(0, 30);
+  const message = {
+    id: crypto.randomUUID(),
+    room: discordRoomId,
+    name,
+    type,
+    text: discordMessage.content.trim().slice(0, 1000),
+    burnAfterReading: false,
+    time: Date.now(),
+    fromDiscord: true
+  };
+  if (attachment) {
+    message.url = attachment.url;
+    message.fileName = attachment.name;
+    message.fileSize = attachment.size;
+  }
+  if (type === "image" && !message.text) delete message.text;
+  addAndBroadcastMessage(message);
+}
+
+function startDiscordBot() {
+  if (!discordBotToken || !discordChannelId) return;
+
+  discordClient = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  });
+  discordClient.on("messageCreate", (discordMessage) => {
+    if (discordMessage.author.bot || discordMessage.channelId !== discordChannelId) return;
+
+    const attachments = Array.from(discordMessage.attachments.values());
+    if (discordMessage.content.trim() || attachments.length === 0) {
+      addDiscordMessage(discordMessage, "text");
+    }
+    for (const attachment of attachments) {
+      const type = attachment.contentType?.startsWith("image/") ? "image" : "file";
+      addDiscordMessage(discordMessage, type, attachment);
+    }
+  });
+  discordClient.once("ready", () => {
+    console.log(`Discord bot connected as ${discordClient.user.tag}`);
+  });
+  discordClient.login(discordBotToken).catch((error) => {
+    console.error("Discord bot login failed:", error.message);
+  });
 }
 
 // 保存消息并只对所在房间做数量裁剪，避免挤占其他房间的历史记录
@@ -208,8 +301,8 @@ app.post("/api/upload", requireAuth, (req, res) => {
       time: Date.now()
     };
 
-    addMessage(message);
-    io.to(message.room).emit("chat:message", message);
+    addAndBroadcastMessage(message);
+    void sendToDiscord({ ...message, fromSpecialUser: !!req.session.unlimited });
     res.json({ ok: true });
   });
 });
@@ -233,8 +326,8 @@ app.post("/api/upload-file", requireAuth, (req, res) => {
       time: Date.now()
     };
 
-    addMessage(message);
-    io.to(message.room).emit("chat:message", message);
+    addAndBroadcastMessage(message);
+    void sendToDiscord({ ...message, fromSpecialUser: !!req.session.unlimited });
     res.json({ ok: true });
   });
 });
@@ -300,8 +393,8 @@ io.on("connection", (socket) => {
       time: Date.now()
     };
 
-    addMessage(message);
-    io.to(roomId).emit("chat:message", message);
+    addAndBroadcastMessage(message);
+    void sendToDiscord({ ...message, fromSpecialUser: !!socket.request.session.unlimited });
   });
 
   socket.on("disconnect", () => {
@@ -316,6 +409,7 @@ io.on("connection", (socket) => {
 
 
 const PORT = process.env.PORT || 3000;
+startDiscordBot();
 server.listen(PORT, () => {
   console.log(`聊天服务器已启动: http://localhost:${PORT}`);
 });

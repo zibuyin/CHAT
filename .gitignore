@@ -4,3 +4,7 @@ public/uploads/*
 
 # Added by ggshield
 .cache_ggshield
+
+messages.json
+/public/uploads
+messages.json
